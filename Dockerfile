@@ -4,7 +4,8 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY main.go .
+# Copy all files (including go.mod and go.sum if it exists)
+COPY . .
 
 RUN go build -o trumail .
 
