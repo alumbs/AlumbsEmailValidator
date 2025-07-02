@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	"encoding/xml"
 	"log"
 	"net"
 	"net/http"
@@ -11,34 +11,27 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 )
 
 type EmailResult struct {
-	Address     string `json:"address"`
-	Username    string `json:"username"`
-	Domain      string `json:"domain"`
-	HostExists  bool   `json:"hostExists"`
-	Deliverable bool   `json:"deliverable"`
-	FullInbox   bool   `json:"fullInbox"`
-	CatchAll    bool   `json:"catchAll"`
-	Disposable  bool   `json:"disposable"`
-	Gravatar    bool   `json:"gravatar"`
+	XMLName     xml.Name `json:"-" xml:"result"`
+	Address     string   `json:"address" xml:"address"`
+	Username    string   `json:"username" xml:"username"`
+	Domain      string   `json:"domain" xml:"domain"`
+	HostExists  bool     `json:"hostExists" xml:"hostExists"`
+	Deliverable bool     `json:"deliverable" xml:"deliverable"`
+	FullInbox   bool     `json:"fullInbox" xml:"fullInbox"`
+	CatchAll    bool     `json:"catchAll" xml:"catchAll"`
+	Disposable  bool     `json:"disposable" xml:"disposable"`
+	Gravatar    bool     `json:"gravatar" xml:"gravatar"`
 }
 
 func main() {
-	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
-
 	// Routes matching Trumail API
-	e.GET("/v1/json/:email", validateEmailJSON)
-	e.GET("/v1/xml/:email", validateEmailXML)
-	e.GET("/v1/health", healthCheck)
-	e.GET("/", healthCheck)
+	http.HandleFunc("/v1/json/", validateEmailJSONHandler)
+	http.HandleFunc("/v1/xml/", validateEmailXMLHandler)
+	http.HandleFunc("/v1/health", healthCheckHandler)
+	http.HandleFunc("/", healthCheckHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -47,31 +40,45 @@ func main() {
 
 	log.Printf("Starting Trumail-compatible email validation service on port %s", port)
 	log.Printf("Available endpoints:")
-	log.Printf("  GET /v1/json/:email")
-	log.Printf("  GET /v1/xml/:email")
+	log.Printf("  GET /v1/json/{email}")
+	log.Printf("  GET /v1/xml/{email}")
 	log.Printf("  GET /v1/health")
 
-	e.Logger.Fatal(e.Start(":" + port))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-func validateEmailJSON(c echo.Context) error {
-	email := c.Param("email")
+func validateEmailJSONHandler(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimPrefix(r.URL.Path, "/v1/json/")
+	if email == "" {
+		http.Error(w, "Email parameter required", http.StatusBadRequest)
+		return
+	}
+
 	result := validateEmail(email)
-	return c.JSON(http.StatusOK, result)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
-func validateEmailXML(c echo.Context) error {
-	email := c.Param("email")
+func validateEmailXMLHandler(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimPrefix(r.URL.Path, "/v1/xml/")
+	if email == "" {
+		http.Error(w, "Email parameter required", http.StatusBadRequest)
+		return
+	}
+
 	result := validateEmail(email)
-	return c.XML(http.StatusOK, result)
+	w.Header().Set("Content-Type", "application/xml")
+	xml.NewEncoder(w).Encode(result)
 }
 
-func healthCheck(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]string{
 		"status":  "healthy",
 		"service": "trumail-compatible",
 		"version": "1.0",
-	})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func validateEmail(email string) EmailResult {
